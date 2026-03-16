@@ -22,6 +22,8 @@ class Project(Base):
     error_stage = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    # NOTE: onupdate only fires on ORM-level updates.
+    # set_project_status() uses raw SQL and must manually include updated_at=NOW()
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     photos = relationship("Photo", back_populates="project", cascade="all, delete-orphan")

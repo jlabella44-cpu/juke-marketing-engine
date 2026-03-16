@@ -25,6 +25,7 @@ class ProjectResponse(BaseModel):
     error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
+    # Computed aggregates — attached by the endpoint, not from ORM attributes
     photo_count: Optional[int] = None
     selected_count: Optional[int] = None
 

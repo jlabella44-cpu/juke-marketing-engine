@@ -11,7 +11,7 @@ class PhotoResponse(BaseModel):
     file_path: str
     dropbox_path: Optional[str]
     room_tag: Optional[str]
-    feature_tags: list[str]
+    feature_tags: list[str] = []
     ai_score: Optional[float]
     selected_rank: Optional[int]
     hero_slot: Optional[str]
