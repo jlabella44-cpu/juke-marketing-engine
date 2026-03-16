@@ -54,4 +54,3 @@ async def set_project_status(
             "project_id": str(project_id),
         },
     )
-    await db.commit()

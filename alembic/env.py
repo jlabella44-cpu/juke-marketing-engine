@@ -23,7 +23,7 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode (no live DB connection)."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
     context.configure(
         url=url,
         target_metadata=target_metadata,
