@@ -35,19 +35,11 @@ def test_bad_zip_file(tmp_path):
 
 
 def test_directory_entries_skipped(tmp_path):
-    """Directory entries (ending in '/') are not extracted as files/dirs."""
-    zip_path = tmp_path / "dirs.zip"
+    """safe_extract should skip directory-only entries."""
+    zip_path = tmp_path / "test.zip"
     with zipfile.ZipFile(zip_path, 'w') as zf:
-        # Add a directory entry explicitly
-        zf.mkdir("subdir")
-        zf.writestr("subdir/file.txt", "hello")
+        zf.mkdir("emptydir")  # directory entry only, no files
     target = tmp_path / "output"
     safe_extract(zip_path, target)
-    # The directory entry itself should not have been explicitly created by us,
-    # but the file inside it should exist (extracted normally)
-    assert (target / "subdir" / "file.txt").exists()
-    # No bare directory-only artifact at the top level from a dir-only entry
-    # Verify the zip actually had a dir entry
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        names = zf.namelist()
-    assert any(n.endswith('/') for n in names), "Test setup: zip should contain a dir entry"
+    # Directory entry should be skipped — no empty dir created
+    assert not (target / "emptydir").exists()
