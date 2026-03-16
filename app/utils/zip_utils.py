@@ -18,7 +18,7 @@ def safe_extract(zip_path: Path, target_dir: Path) -> None:
         for member in zf.namelist():
             member_path = (target_dir / member).resolve()
             # Zipslip check: resolved path must be inside target_dir
-            if not str(member_path).startswith(str(target_dir)):
+            if target_dir not in member_path.parents:
                 raise ValueError("zipslip")
             # Skip directory entries
             if not member.endswith('/'):

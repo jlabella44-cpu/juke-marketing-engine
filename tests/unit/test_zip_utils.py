@@ -34,6 +34,22 @@ def test_bad_zip_file(tmp_path):
         safe_extract(bad_path, target)
 
 
+def test_zipslip_sibling_prefix_rejected(tmp_path):
+    """Sibling directory with same prefix as target must be rejected."""
+    zip_path = tmp_path / "evil.zip"
+    # Create a path that starts with target_dir name but is a sibling
+    # We simulate this by manually crafting a ZipInfo entry
+    import zipfile
+    zf = zipfile.ZipFile(zip_path, 'w')
+    # Write a file that when joined to target would resolve outside
+    info = zipfile.ZipInfo("../sibling-evil/payload.txt")
+    zf.writestr(info, "evil content")
+    zf.close()
+    target = tmp_path / "output"
+    with pytest.raises(ValueError, match="zipslip"):
+        safe_extract(zip_path, target)
+
+
 def test_directory_entries_skipped(tmp_path):
     """safe_extract should skip directory-only entries."""
     zip_path = tmp_path / "test.zip"

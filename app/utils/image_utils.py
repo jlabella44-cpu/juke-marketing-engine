@@ -13,5 +13,5 @@ def validate_image(path: Path) -> bool:
         with Image.open(path) as img:
             img.verify()
         return True
-    except UnidentifiedImageError:
+    except (UnidentifiedImageError, FileNotFoundError, OSError):
         return False
