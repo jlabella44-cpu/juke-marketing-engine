@@ -4,6 +4,10 @@ import shutil
 from pathlib import Path
 from uuid import UUID
 
+# IMPORTANT: asyncio.run() is used to call async services from sync Celery tasks.
+# This requires the Celery worker to use the default prefork pool (--pool=prefork).
+# Do NOT use --pool=gevent or --pool=eventlet — asyncio.run() will deadlock or fail.
+
 from sqlalchemy import select, insert
 from sqlalchemy.exc import IntegrityError
 
@@ -69,40 +73,44 @@ async def _record_email(email_uid: str, project_id, outcome: str):
 
 async def _create_project_and_enqueue(email_uid: str, address: str, zip_url: str, delivery_url: str):
     async with async_session_factory() as db:
-        # Check if already processed
-        existing = await db.execute(
-            select(ProcessedEmail).where(ProcessedEmail.email_uid == email_uid)
-        )
-        if existing.scalar_one_or_none() is not None:
-            logger.info("Email %s already processed, skipping", email_uid)
-            return
-
-        # Create project
-        slug = address_to_slug(address)
-        project = Project(
-            address=address,
-            slug=slug,
-            delivery_url=delivery_url,
-            zip_url=zip_url,
-            email_uid=email_uid,
-            status="new",
-        )
-        db.add(project)
-        await db.flush()  # get project.id without committing
-
-        # Insert processed_emails record
-        await db.execute(
-            insert(ProcessedEmail).values(
-                email_uid=email_uid,
-                project_id=project.id,
-                outcome="created",
+        try:
+            # Check if already processed
+            existing = await db.execute(
+                select(ProcessedEmail).where(ProcessedEmail.email_uid == email_uid)
             )
-        )
-        await db.commit()
+            if existing.scalar_one_or_none() is not None:
+                logger.info("Email %s already processed, skipping", email_uid)
+                return
 
-        # Enqueue pipeline
-        run_pipeline.delay(str(project.id))
-        logger.info("Enqueued pipeline for project %s (%s)", project.id, address)
+            # Create project
+            slug = address_to_slug(address)
+            project = Project(
+                address=address,
+                slug=slug,
+                delivery_url=delivery_url,
+                zip_url=zip_url,
+                email_uid=email_uid,
+                status="new",
+            )
+            db.add(project)
+            await db.flush()  # get project.id without committing
+
+            # Insert processed_emails record
+            await db.execute(
+                insert(ProcessedEmail).values(
+                    email_uid=email_uid,
+                    project_id=project.id,
+                    outcome="created",
+                )
+            )
+            await db.commit()
+
+            # Enqueue pipeline
+            run_pipeline.delay(str(project.id))
+            logger.info("Enqueued pipeline for project %s (%s)", project.id, address)
+        except IntegrityError:
+            await db.rollback()
+            logger.warning("Duplicate email %s detected during project creation, skipping", email_uid)
 
 
 @app.task(bind=True, max_retries=3, name="app.tasks.pipeline.run_pipeline")
@@ -112,9 +120,9 @@ def run_pipeline(self, project_id: str):
     Steps:
     1. asyncio.run(media_ingestion.process(project_id))
     2. dropbox_storage.upload_source(project_id)    — catch NotImplementedError, log + skip
-    3. shutil.rmtree(temp_dir / project_id)         — cleanup after source upload attempt
-    4. asyncio.run(image_tagging.process(project_id))
-    5. asyncio.run(photo_selection.process(project_id))
+    3. asyncio.run(image_tagging.process(project_id))
+    4. asyncio.run(photo_selection.process(project_id))
+    5. shutil.rmtree(temp_dir / project_id)         — cleanup after all services complete
     6. dropbox_storage.upload_selected(project_id)  — catch NotImplementedError, log + skip
     """
     pid = UUID(project_id)
@@ -130,16 +138,16 @@ def run_pipeline(self, project_id: str):
         except NotImplementedError:
             logger.info("Dropbox source upload skipped (Phase 2 not implemented)")
 
-        # Step 3: Cleanup temp files after source upload attempt
+        # Step 3: Image tagging
+        asyncio.run(image_tagging.process(pid))
+
+        # Step 4: Photo selection
+        asyncio.run(photo_selection.process(pid))
+
+        # Step 5: Cleanup temp files (after all services complete)
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
             logger.info("Cleaned up temp dir %s", temp_dir)
-
-        # Step 4: Image tagging
-        asyncio.run(image_tagging.process(pid))
-
-        # Step 5: Photo selection
-        asyncio.run(photo_selection.process(pid))
 
         # Step 6: Dropbox selected upload (Phase 2)
         try:
@@ -149,4 +157,23 @@ def run_pipeline(self, project_id: str):
 
     except Exception as exc:
         logger.exception("Pipeline failed for project %s: %s", project_id, exc)
+        if self.request.retries >= self.max_retries:
+            # Final attempt failed — mark project as permanently failed
+            logger.critical("Pipeline exhausted retries for project %s", project_id)
+            try:
+                asyncio.run(_mark_project_failed(pid, str(exc)))
+            except Exception as mark_err:
+                logger.error("Could not mark project failed: %s", mark_err)
+            raise  # re-raise without retry
         raise self.retry(exc=exc, countdown=60)
+
+
+async def _mark_project_failed(project_id: UUID, error_message: str):
+    from app.database import set_project_status
+    async with async_session_factory() as db:
+        await set_project_status(
+            db, project_id, "failed",
+            error_stage="pipeline",
+            error_message=f"Max retries exceeded: {error_message}"
+        )
+        await db.commit()
