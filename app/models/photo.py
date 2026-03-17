@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -10,6 +10,9 @@ from app.database import Base
 
 class Photo(Base):
     __tablename__ = "photos"
+    __table_args__ = (
+        UniqueConstraint("project_id", "file_path", name="uq_photo_project_filepath"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)

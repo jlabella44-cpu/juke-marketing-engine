@@ -56,6 +56,13 @@ async def process(project_id: UUID) -> None:
                     error_stage="ingestion", error_message=f"BadZipFile: {zip_path}")
                 await db.commit()
                 return
+            except ValueError as e:
+                if "zipslip" in str(e):
+                    await set_project_status(db, project_id, "failed",
+                        error_stage="ingestion", error_message=f"Zipslip attack detected in archive: {zip_path}")
+                    await db.commit()
+                    return
+                raise
 
             # Validate and record photos
             photo_count = 0
@@ -77,17 +84,25 @@ async def process(project_id: UUID) -> None:
             logger.info("Ingested %d photos for project %s", photo_count, project_id)
 
         except Exception as exc:
-            # ENOSPC check
             if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
                 logger.critical("ENOSPC: disk full during ingestion for project %s", project_id)
+                error_msg = "Disk full (ENOSPC)"
+            elif isinstance(exc, httpx.HTTPStatusError):
+                error_msg = f"HTTP {exc.response.status_code}: {project.zip_url}"
+            elif isinstance(exc, httpx.TimeoutException):
+                error_msg = "Download timeout after 3 attempts"
+            else:
+                error_msg = str(exc)
             await set_project_status(db, project_id, "failed",
-                error_stage="ingestion", error_message=str(exc))
+                error_stage="ingestion", error_message=error_msg)
             await db.commit()
             raise
 
 
 async def _download_zip(url: str, dest: Path, project_id: UUID, db) -> None:
-    """Stream download with retry on timeout (3 attempts, exponential backoff)."""
+    """Stream download with retry on timeout (3 attempts, exponential backoff).
+    Raises: httpx.TimeoutException (after 3 attempts), httpx.HTTPStatusError
+    """
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -99,15 +114,9 @@ async def _download_zip(url: str, dest: Path, project_id: UUID, db) -> None:
             return
         except httpx.TimeoutException:
             if attempt == 2:
-                await set_project_status(db, project_id, "failed",
-                    error_stage="ingestion", error_message="Download timeout after 3 attempts")
-                await db.commit()
-                raise
+                raise  # Let outer handler classify
             wait = 2 ** attempt
             logger.warning("Download timeout (attempt %d/3), retrying in %ds", attempt + 1, wait)
             await asyncio.sleep(wait)
-        except httpx.HTTPStatusError as e:
-            await set_project_status(db, project_id, "failed",
-                error_stage="ingestion", error_message=f"HTTP {e.response.status_code}: {url}")
-            await db.commit()
-            raise
+        except httpx.HTTPStatusError:
+            raise  # Let outer handler classify

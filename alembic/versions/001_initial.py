@@ -95,6 +95,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("project_id", "file_path", name="uq_photo_project_filepath"),
     )
     op.create_index("idx_photos_project_id", "photos", ["project_id"])
     op.create_index(
