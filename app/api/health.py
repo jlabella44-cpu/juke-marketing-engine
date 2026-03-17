@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from sqlalchemy import text
 
 from app.config import settings
@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health(response: Response) -> dict:
     # Check DB
     db_status = "ok"
     try:
@@ -27,4 +27,6 @@ async def health() -> dict:
     except Exception:
         redis_status = "error"
 
-    return {"status": "ok", "db": db_status, "redis": redis_status}
+    status_code = 200 if db_status == "ok" and redis_status == "ok" else 503
+    response.status_code = status_code
+    return {"status": "ok" if status_code == 200 else "degraded", "db": db_status, "redis": redis_status}

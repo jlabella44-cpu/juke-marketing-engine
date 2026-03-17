@@ -1,8 +1,8 @@
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, func, select, case
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete, func, nullslast, select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import verify_api_key
@@ -14,6 +14,8 @@ from app.schemas.project import ProjectListResponse, ProjectResponse
 from app.tasks.pipeline import run_pipeline
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
+
+VALID_STATUSES = ["new", "downloading", "ingested", "tagging", "tagged", "selecting", "selected", "failed"]
 
 
 def _build_project_response(project: Project, photo_count: int, selected_count: int) -> ProjectResponse:
@@ -52,11 +54,13 @@ async def _get_photo_counts(db: AsyncSession, project_ids: list) -> dict:
 
 @router.get("/projects", response_model=ProjectListResponse)
 async def list_projects(
-    status: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 20,
+    status: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectListResponse:
+    if status is not None and status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Valid values: {VALID_STATUSES}")
     query = select(Project)
     if status is not None:
         query = query.where(Project.status == status)
@@ -112,7 +116,8 @@ async def reprocess_project(
     project.error_message = None
     project.status = "new"
 
-    await db.flush()
+    # Ensure all changes are committed BEFORE enqueuing the task
+    await db.commit()
 
     # Enqueue pipeline
     run_pipeline.delay(str(project_id))
@@ -130,6 +135,10 @@ async def list_project_photos(
     if proj_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    result = await db.execute(select(Photo).where(Photo.project_id == project_id))
+    result = await db.execute(
+        select(Photo)
+        .where(Photo.project_id == project_id)
+        .order_by(nullslast(Photo.selected_rank), Photo.id)
+    )
     photos = result.scalars().all()
     return [PhotoResponse.model_validate(p) for p in photos]
