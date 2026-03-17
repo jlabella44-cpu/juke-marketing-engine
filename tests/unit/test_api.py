@@ -25,24 +25,6 @@ def mock_settings(api_key):
         yield mock
 
 
-def _make_mock_db():
-    """Return a mock async DB session that returns empty results by default."""
-    db = AsyncMock()
-    # scalar_one() → 0 (count queries)
-    count_result = MagicMock()
-    count_result.scalar_one.return_value = 0
-    # scalars().all() → []
-    list_result = MagicMock()
-    list_result.scalars.return_value.all.return_value = []
-    # scalar_one_or_none() → None (project not found)
-    none_result = MagicMock()
-    none_result.scalar_one_or_none.return_value = None
-
-    # execute returns the count result first, then list result for subsequent calls
-    db.execute = AsyncMock(side_effect=[count_result, list_result, none_result])
-    return db
-
-
 # ---------------------------------------------------------------------------
 # Auth tests
 # ---------------------------------------------------------------------------
@@ -72,23 +54,25 @@ async def test_health_check_returns_200_structure(test_app):
     """GET /api/health — no auth required, returns {status, db, redis}."""
     with patch("app.api.health.engine") as mock_engine, \
          patch("app.api.health.redis") as mock_redis:
-        # Mock successful DB connection
+        # Mock DB connection success
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
-        mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_engine.connect.return_value.__aexit__ = AsyncMock(return_value=False)
-        # Mock successful Redis ping
-        mock_redis_instance = MagicMock()
-        mock_redis.Redis.from_url.return_value = mock_redis_instance
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=None)
+        mock_engine.connect.return_value = mock_conn
+
+        # Mock Redis ping success
+        mock_redis_client = MagicMock()
+        mock_redis_client.ping.return_value = True
+        mock_redis.Redis.from_url.return_value = mock_redis_client
 
         async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
             response = await client.get("/api/health")
 
-    assert response.status_code in (200, 503)  # 503 if infra not available in test env
-    body = response.json()
-    assert "status" in body
-    assert "db" in body
-    assert "redis" in body
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "db" in data
+    assert "redis" in data
 
 
 # ---------------------------------------------------------------------------

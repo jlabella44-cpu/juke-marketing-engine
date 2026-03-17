@@ -116,9 +116,25 @@ async def test_pipeline_happy_path(tmp_path):
 
         async def execute(self, stmt, params=None):
             result = MagicMock()
-            result.scalar_one_or_none.return_value = fake_project
-            result.scalar_one.return_value = fake_project
-            result.scalars.return_value.all.return_value = list(fake_photos)
+            # Inspect statement to determine what's being queried
+            stmt_str = str(stmt).lower()
+
+            if "processed_emails" in stmt_str:
+                # ProcessedEmail lookup — return None (not processed yet) or handle insert
+                result.scalar_one_or_none.return_value = None
+                result.scalar_one.return_value = None
+                result.scalars.return_value.all.return_value = []
+            elif "photos" in stmt_str and ("select" in stmt_str or "where" in stmt_str):
+                # Photo queries
+                result.scalar_one_or_none.return_value = None
+                result.scalar_one.return_value = None
+                result.scalars.return_value.all.return_value = list(fake_photos)
+                result.rowcount = len(fake_photos)
+            else:
+                # Project queries
+                result.scalar_one_or_none.return_value = fake_project
+                result.scalar_one.return_value = fake_project
+                result.scalars.return_value.all.return_value = [fake_project]
             return result
 
         def add(self, obj):

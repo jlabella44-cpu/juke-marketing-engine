@@ -1,6 +1,5 @@
 """Shared test fixtures for Juke Marketing Engine tests."""
 import pytest
-import pytest_asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from uuid import uuid4
 
