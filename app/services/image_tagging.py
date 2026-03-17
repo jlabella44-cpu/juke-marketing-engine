@@ -119,6 +119,8 @@ async def _tag_batch(
         content.append({"type": "text", "text": prompt})
         return content
 
+    last_raw_response = ["<no response>"]  # mutable container for closure
+
     async def _call_claude(prompt: str) -> list[TaggingResult]:
         """Call Claude and parse response. Raises ValidationError or JSONDecodeError on bad response."""
         loop = asyncio.get_event_loop()
@@ -131,6 +133,7 @@ async def _tag_batch(
             ),
         )
         raw_text = response.content[0].text.strip()
+        last_raw_response[0] = raw_text
         parsed = json.loads(raw_text)
         results = [TaggingResult(**item) for item in parsed]
         return results
@@ -148,7 +151,7 @@ async def _tag_batch(
                 project_id,
                 "failed",
                 error_stage="tagging",
-                error_message=f"Claude response validation failed twice: {e}",
+                error_message=f"Claude response validation failed twice. Raw response: {last_raw_response[0]}",
             )
             await db.commit()
             raise
