@@ -10,13 +10,8 @@ def create_app() -> FastAPI:
         debug=settings.DEBUG,
     )
 
-    # Router inclusion placeholder — add routers here as tasks are completed
-    # from app.api import router as api_router
-    # app.include_router(api_router, prefix="/api/v1")
-
-    @app.get("/health")
-    async def health() -> dict:
-        return {"status": "ok"}
+    from app.api.router import router as api_router
+    app.include_router(api_router)
 
     return app
 
