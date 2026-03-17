@@ -10,15 +10,6 @@ from app.models.project import Project
 
 logger = logging.getLogger(__name__)
 
-HERO_SLOTS = [
-    "hero_exterior",         # room_tag == "exterior"
-    "hero_kitchen",          # room_tag == "kitchen"
-    "hero_living_room",      # room_tag == "living_room"
-    "hero_primary_bedroom",  # room_tag == "primary_bedroom"
-    "hero_primary_bathroom", # room_tag == "primary_bathroom"
-    "hero_drone",            # room_tag == "drone"
-]
-
 PRIORITY_ORDER = [
     "dining", "outdoor_living", "basement", "office",
     "bedroom", "bathroom", "detail",
@@ -80,11 +71,13 @@ async def process(project_id: UUID) -> None:
             ]
             candidates.sort(key=lambda p: p.ai_score, reverse=True)
 
+            assigned = False
             if candidates:
                 winner = candidates[0]
                 winner.selected_rank = current_rank
                 winner.hero_slot = slot_name
                 assigned_ids.add(winner.id)
+                assigned = True
             else:
                 # No candidate found — use globally highest-scored unassigned photo
                 fallback_candidates = [
@@ -97,9 +90,16 @@ async def process(project_id: UUID) -> None:
                     fallback.hero_slot = slot_name
                     fallback.is_best_available = True
                     assigned_ids.add(fallback.id)
-                # If no photos at all, skip this slot
+                    logger.warning(
+                        "Hero slot %s filled with best_available photo (room_tag=%s, id=%s) for project %s",
+                        slot_name, fallback.room_tag, fallback.id, project_id
+                    )
+                    assigned = True
+                else:
+                    logger.warning("Hero slot %s has no candidate photos for project %s", slot_name, project_id)
 
-            current_rank += 1
+            if assigned:
+                current_rank += 1
 
         # Step 2: Standout promotions
         # Photos with ANY feature in STANDOUT_PROMOTIONS go above PRIORITY_ORDER
