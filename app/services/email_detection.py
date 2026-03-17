@@ -45,7 +45,10 @@ def _extract_zip_url(msg: email.message.Message) -> str | None:
         return None
 
     match = re.search(r"https?://[^\s<>\"]+", body_text)
-    return match.group(0) if match else None
+    if not match:
+        return None
+    url = match.group(0).rstrip(".,;:)>")
+    return url if url else None
 
 
 def poll_inbox() -> list[dict]:

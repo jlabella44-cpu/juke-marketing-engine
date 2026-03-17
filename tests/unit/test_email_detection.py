@@ -79,6 +79,8 @@ def test_poll_inbox_imap_error_propagates(mock_imap_cls):
     with pytest.raises(imaplib.IMAP4.error):
         poll_inbox()
 
+    imap_instance.logout.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Test 3: No address (empty subject) → skip, return empty list
@@ -115,3 +117,23 @@ def test_poll_inbox_no_url_in_body_skipped(mock_imap_cls):
 
     assert results == []
     imap_instance.store.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 5: URL with trailing punctuation → stripped correctly
+# ---------------------------------------------------------------------------
+@patch("app.services.email_detection.imaplib.IMAP4_SSL")
+def test_poll_inbox_url_trailing_punctuation_stripped(mock_imap_cls):
+    """URL with trailing period in body is cleaned correctly."""
+    raw = _make_raw_email(
+        subject="Show & Tour Delivery: 456 Oak Ave, KC",
+        body="Download your gallery here: https://showandtour.com/gallery/xyz789.",
+    )
+    imap_instance = _build_imap_mock([raw])
+    mock_imap_cls.return_value = imap_instance
+
+    results = poll_inbox()
+
+    assert len(results) == 1
+    assert results[0]["zip_url"] == "https://showandtour.com/gallery/xyz789"
+    assert not results[0]["zip_url"].endswith(".")
