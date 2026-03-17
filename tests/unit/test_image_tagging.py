@@ -255,6 +255,50 @@ async def test_rate_limit_backoff_succeeds(
 
 
 # ---------------------------------------------------------------------------
+# Test 6: is_drone=True → room_tag overridden to "drone"
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+@patch("app.services.image_tagging.async_session_factory")
+@patch("app.services.image_tagging.set_project_status", new_callable=AsyncMock)
+@patch("app.services.image_tagging.anthropic.Anthropic")
+@patch("pathlib.Path.read_bytes", return_value=b"fake image bytes")
+async def test_is_drone_overrides_room_tag(
+    mock_read_bytes, mock_anthropic_cls, mock_set_status, mock_session_factory
+):
+    """When is_drone=True, room_tag is set to 'drone' regardless of tagged room_tag."""
+    project = _make_project(status="ingested")
+    photo = _make_photo(project.id, "/tmp/drone_photo.jpg")
+    db = _make_db_mock(project, photos=[photo])
+    mock_session_factory.return_value = _make_session_ctx(db)
+
+    # Claude returns is_drone=True with a non-drone room_tag
+    drone_response = _make_claude_response([{
+        "image_index": 0,
+        "room_tag": "exterior",
+        "feature_tags": ["pool"],
+        "ai_score": 0.92,
+        "is_drone": True,
+        "standout_features": ["pool"],
+    }])
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = drone_response
+    mock_anthropic_cls.return_value = mock_client
+
+    await process(project.id)
+
+    # Find the UPDATE call and verify room_tag="drone"
+    update_calls = db.execute.call_args_list[2:]  # skip 2 SELECTs
+    assert len(update_calls) >= 1, "Expected at least one UPDATE call"
+
+    # Extract the values passed to the update statement
+    update_stmt = update_calls[0].args[0]
+    # The compiled whereclause and values are on the statement object
+    assert update_stmt._values["room_tag"].value == "drone", (
+        f"Expected room_tag='drone' but got {update_stmt._values['room_tag'].value!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test 5: Idempotency — project.status="tagged" → returns immediately, no Claude call
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio

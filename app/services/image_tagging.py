@@ -78,12 +78,9 @@ async def process(project_id: UUID) -> None:
         batch_size = settings.CLAUDE_VISION_BATCH_SIZE
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-        try:
-            for i in range(0, len(photos), batch_size):
-                batch = photos[i : i + batch_size]
-                await _tag_batch(client, batch, db, project_id)
-        except Exception:
-            raise
+        for i in range(0, len(photos), batch_size):
+            batch = photos[i : i + batch_size]
+            await _tag_batch(client, batch, db, project_id)
 
         await set_project_status(db, project_id, "tagged")
         await db.commit()
@@ -123,7 +120,7 @@ async def _tag_batch(
 
     async def _call_claude(prompt: str) -> list[TaggingResult]:
         """Call Claude and parse response. Raises ValidationError or JSONDecodeError on bad response."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: client.messages.create(
@@ -141,6 +138,11 @@ async def _tag_batch(
     # First attempt
     try:
         results = await _call_claude(TAGGING_PROMPT)
+    except (FileNotFoundError, OSError) as e:
+        await set_project_status(db, project_id, "failed",
+            error_stage="tagging", error_message=f"Image file not accessible: {e}")
+        await db.commit()
+        raise
     except (ValidationError, json.JSONDecodeError):
         logger.warning("Claude response invalid for batch, retrying with stricter prompt")
         try:
