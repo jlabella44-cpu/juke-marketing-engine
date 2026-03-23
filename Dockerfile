@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy dependency spec and install
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[dev]"
+    && pip install --no-cache-dir ".[dev]" \
+    && python -m playwright install chromium \
+    && python -m playwright install-deps chromium
 
 # Copy application code
 COPY . .
