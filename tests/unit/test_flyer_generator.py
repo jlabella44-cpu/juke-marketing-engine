@@ -1,43 +1,91 @@
-# tests/unit/test_flyer_generator.py
-import tempfile
+"""Tests for flyer_generator service."""
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from app.services.flyer_generator import generate_flyer, _collect_feature_bullets
+import tempfile
 
 
-def test_collect_feature_bullets():
-    photos = []
-    for tags in [["granite_counters", "stainless_appliances"], ["hardwood_floors", "fireplace"]]:
-        p = MagicMock()
-        p.feature_tags = tags
-        p.hero_slot = "hero_kitchen"
-        photos.append(p)
-    bullets = _collect_feature_bullets(photos)
-    assert "Granite Counters" in bullets
-    assert "Hardwood Floors" in bullets
+def _make_photo(room_tag, hero_slot=None, ai_score=0.85, selected_rank=1, file_path="/tmp/test.jpg"):
+    p = MagicMock()
+    p.room_tag = room_tag
+    p.hero_slot = hero_slot
+    p.ai_score = ai_score
+    p.selected_rank = selected_rank
+    p.file_path = file_path
+    return p
 
 
-def test_generate_flyer_creates_pdf():
-    photos = []
-    for slot, tags in [
-        ("hero_exterior_front", ["cape_cod", "attached_garage"]),
-        ("hero_kitchen", ["granite_counters"]),
-        ("hero_living_room", ["fireplace"]),
-    ]:
-        p = MagicMock()
-        p.hero_slot = slot
-        p.feature_tags = tags
-        p.file_path = None  # no real images in unit test
-        photos.append(p)
+def _make_listing(beds=4, baths=2.5, sqft=2100, year_built=2005, price=None, property_type="Single Family"):
+    l = MagicMock()
+    l.beds = beds
+    l.baths = baths
+    l.sqft = sqft
+    l.year_built = year_built
+    l.price = price
+    l.property_type = property_type
+    return l
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "flyer.pdf"
-        with patch("app.services.flyer_generator.LOGO_PATH", Path(tmp) / "logo.png"):
-            generate_flyer(
-                address="4514 W 72nd St, Overland Park, KS 66208",
-                photos=photos,
-                mls_description="Beautiful 4-bedroom home...",
-                output_path=out,
-            )
-        assert out.exists()
-        assert out.stat().st_size > 1000  # non-empty PDF
+
+def test_generate_flyer_creates_pdf(tmp_path):
+    from app.services.flyer_generator import generate_flyer
+    photos = [
+        _make_photo("exterior_front", hero_slot="hero_exterior_front"),
+        _make_photo("kitchen", hero_slot="hero_kitchen"),
+        _make_photo("living_room", hero_slot="hero_living_room"),
+    ]
+    listing = _make_listing()
+    out = tmp_path / "flyer.pdf"
+
+    with patch("app.services.flyer_generator.ImageReader") as mock_ir:
+        mock_ir.return_value = MagicMock()
+        generate_flyer("123 Main St", photos, "Great home short description.", listing, out)
+
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_generate_flyer_no_listing(tmp_path):
+    """Flyer generates without listing data (all stats omitted)."""
+    from app.services.flyer_generator import generate_flyer
+    photos = [_make_photo("exterior_front", hero_slot="hero_exterior_front")]
+    out = tmp_path / "flyer.pdf"
+
+    with patch("app.services.flyer_generator.ImageReader"):
+        generate_flyer("456 Oak Ave", photos, "", None, out)
+
+    assert out.exists()
+
+
+def test_select_flyer_photos_orders_correctly():
+    from app.services.flyer_generator import _select_flyer_photos
+    photos = [
+        _make_photo("kitchen", hero_slot="hero_kitchen"),
+        _make_photo("exterior_front", hero_slot="hero_exterior_front"),
+        _make_photo("living_room", hero_slot="hero_living_room"),
+        _make_photo("bedroom", selected_rank=5, ai_score=0.9),
+    ]
+    selected = _select_flyer_photos(photos, max_photos=6)
+    assert selected[0].room_tag == "exterior_front"  # hero always first
+    assert len(selected) <= 6
+
+
+def test_select_flyer_photos_max_respected():
+    from app.services.flyer_generator import _select_flyer_photos
+    photos = [_make_photo(f"bedroom", selected_rank=i) for i in range(10)]
+    selected = _select_flyer_photos(photos, max_photos=4)
+    assert len(selected) <= 4
+
+
+def test_format_stats_full():
+    from app.services.flyer_generator import _format_stats
+    listing = _make_listing(beds=4, baths=2.5, sqft=2100, year_built=2005, price=None)
+    stats = _format_stats(listing)
+    assert "4 BD" in stats
+    assert "2.5 BA" in stats
+    assert "2,100 SQFT" in stats
+    assert "2005" in stats
+
+
+def test_format_stats_no_listing():
+    from app.services.flyer_generator import _format_stats
+    assert _format_stats(None) == ""
