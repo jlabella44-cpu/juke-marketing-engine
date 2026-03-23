@@ -176,6 +176,7 @@ def run_pipeline(self, project_id: str):
                 logger.error("Could not mark project failed: %s", mark_err)
             r.delete(lock_key)
             raise  # re-raise without retry
+        r.delete(lock_key)  # release lock so next retry can acquire it
         raise self.retry(exc=exc, countdown=60)
 
 

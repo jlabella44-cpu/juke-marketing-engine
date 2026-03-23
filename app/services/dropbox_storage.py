@@ -1,4 +1,5 @@
 """Dropbox storage service — uploads generated assets to /Juke Media KC/{slug}/."""
+import asyncio
 import logging
 import shutil
 from pathlib import Path
@@ -60,13 +61,22 @@ async def upload_assets(project_id: UUID) -> None:
         dropbox_path = f"{folder}/{filename}"
 
         try:
+            loop = asyncio.get_event_loop()
             if asset.file_path and Path(asset.file_path).exists():
                 with open(asset.file_path, "rb") as f:
-                    dbx.files_upload(f.read(), dropbox_path,
-                                     mode=dropbox.files.WriteMode.overwrite)
+                    data = f.read()
+                await loop.run_in_executor(
+                    None,
+                    lambda: dbx.files_upload(data, dropbox_path,
+                                             mode=dropbox.files.WriteMode.overwrite)
+                )
             elif asset.content:
-                dbx.files_upload(asset.content.encode("utf-8"), dropbox_path,
-                                 mode=dropbox.files.WriteMode.overwrite)
+                data = asset.content.encode("utf-8")
+                await loop.run_in_executor(
+                    None,
+                    lambda: dbx.files_upload(data, dropbox_path,
+                                             mode=dropbox.files.WriteMode.overwrite)
+                )
             else:
                 logger.warning("Asset %s has no file or content to upload", asset.asset_type)
                 continue

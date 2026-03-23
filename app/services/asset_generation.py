@@ -1,4 +1,5 @@
 """Asset generation orchestrator — runs video, flyer, and copy generators in sequence."""
+import json
 import logging
 from pathlib import Path
 from uuid import UUID
@@ -43,16 +44,45 @@ async def process(project_id: UUID) -> None:
     assets_dir = Path(settings.TEMP_DIR) / str(project_id) / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Copy generation ---
-    await _run_asset("copy", project_id, _generate_copy, project_id)
+    # --- Copy generation (skip if already ready) ---
+    async with async_session_factory() as db:
+        copy_ready = (await db.execute(
+            select(ProjectAsset).where(
+                ProjectAsset.project_id == project_id,
+                ProjectAsset.asset_type == "copy_mls",
+                ProjectAsset.status == "ready",
+            )
+        )).scalar_one_or_none()
+    if not copy_ready:
+        await _run_asset("copy", project_id, _generate_copy, project_id)
 
-    # --- Video generation ---
-    video_path = assets_dir / "video.mp4"
-    await _run_asset("video", project_id, video_generator.generate, project_id, video_path)
+    # --- Video generation (skip if already ready) ---
+    async with async_session_factory() as db:
+        video_ready = (await db.execute(
+            select(ProjectAsset).where(
+                ProjectAsset.project_id == project_id,
+                ProjectAsset.asset_type == "video",
+                ProjectAsset.status == "ready",
+            )
+        )).scalar_one_or_none()
+    if not video_ready:
+        video_path = assets_dir / "video.mp4"
+        await _run_asset("video", project_id, video_generator.generate, project_id, video_path)
+    else:
+        video_path = assets_dir / "video.mp4"
 
-    # --- Flyer generation (depends on copy being ready) ---
-    flyer_path = assets_dir / "flyer.pdf"
-    await _run_asset("flyer", project_id, _generate_flyer, project_id, flyer_path)
+    # --- Flyer generation (skip if already ready) ---
+    async with async_session_factory() as db:
+        flyer_ready = (await db.execute(
+            select(ProjectAsset).where(
+                ProjectAsset.project_id == project_id,
+                ProjectAsset.asset_type == "flyer",
+                ProjectAsset.status == "ready",
+            )
+        )).scalar_one_or_none()
+    if not flyer_ready:
+        flyer_path = assets_dir / "flyer.pdf"
+        await _run_asset("flyer", project_id, _generate_flyer, project_id, flyer_path)
 
     # Check if all assets succeeded
     async with async_session_factory() as db:
@@ -94,7 +124,7 @@ async def _run_asset(asset_key: str, project_id: UUID, fn, *args):
         async with async_session_factory() as db:
             if asset_key == "copy":
                 mls_content = result.get("mls_description", "")
-                social_content = str({k: result[k] for k in ("instagram", "facebook", "twitter")})
+                social_content = json.dumps({k: result[k] for k in ("instagram", "facebook", "twitter")})
                 await db.execute(
                     update(ProjectAsset)
                     .where(ProjectAsset.project_id == project_id, ProjectAsset.asset_type == "copy_mls")

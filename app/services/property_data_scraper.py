@@ -71,49 +71,57 @@ async def process(project_id: UUID) -> None:
         realtor_data = _safe(realtor_data)
         homes_data   = _safe(homes_data)
 
-        sources = {"zillow": zillow_data, "realtor": realtor_data, "homes": homes_data}
-        resolved = _cross_reference(sources)
+        try:
+            sources = {"zillow": zillow_data, "realtor": realtor_data, "homes": homes_data}
+            resolved = _cross_reference(sources)
 
-        def _v(d, k):
-            return d.get(k) if d else None
+            def _v(d, k):
+                return d.get(k) if d else None
 
-        listing = ProjectListingData(
-            project_id=project_id,
-            zillow_beds=_v(zillow_data, "beds"),
-            zillow_baths=_v(zillow_data, "baths"),
-            zillow_sqft=_v(zillow_data, "sqft"),
-            zillow_year_built=_v(zillow_data, "year_built"),
-            zillow_price=_v(zillow_data, "price"),
-            zillow_lot_size=_v(zillow_data, "lot_size"),
-            zillow_property_type=_v(zillow_data, "property_type"),
-            realtor_beds=_v(realtor_data, "beds"),
-            realtor_baths=_v(realtor_data, "baths"),
-            realtor_sqft=_v(realtor_data, "sqft"),
-            realtor_year_built=_v(realtor_data, "year_built"),
-            realtor_price=_v(realtor_data, "price"),
-            realtor_lot_size=_v(realtor_data, "lot_size"),
-            realtor_property_type=_v(realtor_data, "property_type"),
-            homes_beds=_v(homes_data, "beds"),
-            homes_baths=_v(homes_data, "baths"),
-            homes_sqft=_v(homes_data, "sqft"),
-            homes_year_built=_v(homes_data, "year_built"),
-            homes_price=_v(homes_data, "price"),
-            homes_lot_size=_v(homes_data, "lot_size"),
-            homes_property_type=_v(homes_data, "property_type"),
-            beds=resolved.get("beds"),
-            baths=resolved.get("baths"),
-            sqft=resolved.get("sqft"),
-            year_built=resolved.get("year_built"),
-            price=resolved.get("price"),
-            lot_size=resolved.get("lot_size"),
-            property_type=resolved.get("property_type"),
-            confidence=resolved["confidence"],
-            confidence_notes=resolved.get("confidence_notes"),
-        )
-        db.add(listing)
-        await set_project_status(db, project_id, "scraped")
-        await db.commit()
-        logger.info("Scraped listing data for project %s — confidence=%s", project_id, resolved["confidence"])
+            listing = ProjectListingData(
+                project_id=project_id,
+                zillow_beds=_v(zillow_data, "beds"),
+                zillow_baths=_v(zillow_data, "baths"),
+                zillow_sqft=_v(zillow_data, "sqft"),
+                zillow_year_built=_v(zillow_data, "year_built"),
+                zillow_price=_v(zillow_data, "price"),
+                zillow_lot_size=_v(zillow_data, "lot_size"),
+                zillow_property_type=_v(zillow_data, "property_type"),
+                realtor_beds=_v(realtor_data, "beds"),
+                realtor_baths=_v(realtor_data, "baths"),
+                realtor_sqft=_v(realtor_data, "sqft"),
+                realtor_year_built=_v(realtor_data, "year_built"),
+                realtor_price=_v(realtor_data, "price"),
+                realtor_lot_size=_v(realtor_data, "lot_size"),
+                realtor_property_type=_v(realtor_data, "property_type"),
+                homes_beds=_v(homes_data, "beds"),
+                homes_baths=_v(homes_data, "baths"),
+                homes_sqft=_v(homes_data, "sqft"),
+                homes_year_built=_v(homes_data, "year_built"),
+                homes_price=_v(homes_data, "price"),
+                homes_lot_size=_v(homes_data, "lot_size"),
+                homes_property_type=_v(homes_data, "property_type"),
+                beds=resolved.get("beds"),
+                baths=resolved.get("baths"),
+                sqft=resolved.get("sqft"),
+                year_built=resolved.get("year_built"),
+                price=resolved.get("price"),
+                lot_size=resolved.get("lot_size"),
+                property_type=resolved.get("property_type"),
+                confidence=resolved["confidence"],
+                confidence_notes=resolved.get("confidence_notes"),
+            )
+            db.add(listing)
+            await set_project_status(db, project_id, "scraped")
+            await db.commit()
+            logger.info("Scraped listing data for project %s — confidence=%s", project_id, resolved["confidence"])
+        except Exception as exc:
+            logger.exception("Failed to process scrape results for project %s: %s", project_id, exc)
+            await set_project_status(db, project_id, "failed",
+                                     error_stage="scraping",
+                                     error_message=str(exc))
+            await db.commit()
+            raise
 
 
 # ---------------------------------------------------------------------------
