@@ -86,7 +86,9 @@ def _order_photos_for_video(photos: list) -> list:
 
 def _render_video(photos: list, output_path: Path) -> None:
     """Render the video using MoviePy. Runs in a thread (blocking)."""
-    from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
+    from moviepy import ImageClip, concatenate_videoclips, AudioFileClip
+    from moviepy.video.fx import CrossFadeIn
+    from moviepy.audio.fx import AudioFadeOut, AudioLoop
     import numpy as np
 
     clips = []
@@ -96,7 +98,7 @@ def _render_video(photos: list, output_path: Path) -> None:
             logger.warning("Skipping missing file in video: %s", path)
             continue
 
-        clip = ImageClip(path, duration=PHOTO_DURATION).resize((1920, 1080))
+        clip = ImageClip(path, duration=PHOTO_DURATION).resized((1920, 1080))
         effect = random.choice(["zoom_in", "zoom_out", "pan_left", "pan_right", "hold"])
         clip = _apply_ken_burns(clip, effect)
         clips.append(clip)
@@ -107,19 +109,19 @@ def _render_video(photos: list, output_path: Path) -> None:
     # Crossfade transitions
     final_clips = [clips[0]]
     for clip in clips[1:]:
-        final_clips.append(clip.crossfadein(CROSSFADE))
+        final_clips.append(clip.with_effects([CrossFadeIn(CROSSFADE)]))
 
     video = concatenate_videoclips(final_clips, method="compose")
 
     # Add background music if available
     if MUSIC_PATH.exists():
-        audio = AudioFileClip(str(MUSIC_PATH)).volumex(MUSIC_VOLUME)
+        audio = AudioFileClip(str(MUSIC_PATH)).multiply_volume(MUSIC_VOLUME)
         if audio.duration < video.duration:
-            audio = audio.audio_loop(duration=video.duration)
+            audio = audio.with_effects([AudioLoop(duration=video.duration)])
         else:
-            audio = audio.subclip(0, video.duration)
-        audio = audio.audio_fadeout(2)
-        video = video.set_audio(audio)
+            audio = audio.subclipped(0, video.duration)
+        audio = audio.with_effects([AudioFadeOut(2)])
+        video = video.with_audio(audio)
 
     video.write_videofile(
         str(output_path),
@@ -133,7 +135,7 @@ def _render_video(photos: list, output_path: Path) -> None:
 
 def _apply_ken_burns(clip, effect: str):
     """Apply a Ken Burns pan/zoom effect to an ImageClip."""
-    from moviepy.editor import VideoClip
+    from moviepy import VideoClip
     import numpy as np
     from PIL import Image
 
@@ -168,4 +170,4 @@ def _apply_ken_burns(clip, effect: str):
         img = Image.fromarray(cropped).resize((w, h), Image.LANCZOS)
         return np.array(img)
 
-    return VideoClip(make_frame, duration=duration).set_fps(24)
+    return VideoClip(make_frame, duration=duration).with_fps(24)
