@@ -211,8 +211,8 @@ def _order_photos(photos: list) -> list:
 
     Note: 'detail' room tag is intentionally excluded from the video sequence.
     """
-    drones = [p for p in photos if p.is_drone]
-    non_drones = [p for p in photos if not p.is_drone]
+    drones = [p for p in photos if p.room_tag == "drone"]
+    non_drones = [p for p in photos if p.room_tag != "drone"]
 
     exterior_front = [p for p in non_drones if p.room_tag == "exterior_front"]
     exterior_rear = [p for p in non_drones if p.room_tag == "exterior_rear"]

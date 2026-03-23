@@ -5,10 +5,9 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 
 
-def _make_photo(room_tag, is_drone=False, ai_score=0.85, file_path="/tmp/photo.jpg"):
+def _make_photo(room_tag, ai_score=0.85, file_path="/tmp/photo.jpg"):
     p = MagicMock()
     p.room_tag = room_tag
-    p.is_drone = is_drone
     p.ai_score = ai_score
     p.file_path = file_path
     p.selected_rank = 1
@@ -69,11 +68,11 @@ def test_order_photos_drone_first():
     from app.services.video_generator import _order_photos
     photos = [
         _make_photo("kitchen"),
-        _make_photo("exterior_front", is_drone=False),
-        _make_photo("living_room", is_drone=True),
+        _make_photo("exterior_front"),
+        _make_photo("drone"),
     ]
     ordered = _order_photos(photos)
-    assert ordered[0].is_drone is True
+    assert ordered[0].room_tag == "drone"
 
 
 def test_order_photos_detail_excluded():
