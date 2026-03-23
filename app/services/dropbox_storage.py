@@ -26,6 +26,12 @@ _ASSET_FILENAMES = {
 
 
 def _get_dropbox_client() -> dropbox.Dropbox:
+    if settings.DROPBOX_REFRESH_TOKEN and settings.DROPBOX_REFRESH_TOKEN != "your-refresh-token":
+        return dropbox.Dropbox(
+            oauth2_refresh_token=settings.DROPBOX_REFRESH_TOKEN,
+            app_key=settings.DROPBOX_APP_KEY,
+            app_secret=settings.DROPBOX_APP_SECRET,
+        )
     return dropbox.Dropbox(oauth2_access_token=settings.DROPBOX_ACCESS_TOKEN)
 
 
