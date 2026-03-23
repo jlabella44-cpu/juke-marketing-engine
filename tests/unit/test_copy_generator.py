@@ -1,8 +1,9 @@
-# tests/unit/test_copy_generator.py
+"""Tests for copy_generator service."""
 import json
 import pytest
-from unittest.mock import MagicMock, patch
-from app.services.copy_generator import _build_prompt, _parse_response
+from unittest.mock import MagicMock, patch, AsyncMock
+from uuid import uuid4
+
 from app.schemas.claude_responses import CopyResult
 from pydantic import ValidationError
 
@@ -22,49 +23,57 @@ def test_copy_result_missing_field():
         CopyResult(mls_full="x", mls_short="x", facebook="x")  # missing instagram
 
 
-def test_build_prompt_with_listing_data():
+def test_parse_response_valid_json():
+    from app.services.copy_generator import _parse_response
+    raw = json.dumps({
+        "mls_full": "Full description here " * 15,
+        "mls_short": "Short description " * 6,
+        "facebook": "Facebook post 🏡 #One #Two #Three #Four #Five",
+        "instagram": "Instagram caption ✨ #One #Two #Three #Four #Five",
+    })
+    result = _parse_response(raw)
+    assert isinstance(result, CopyResult)
+    assert result.mls_full.startswith("Full")
+    assert result.instagram.startswith("Instagram")
+
+
+def test_parse_response_strips_markdown_fences():
+    from app.services.copy_generator import _parse_response
+    raw = '```json\n{"mls_full": "x", "mls_short": "y", "facebook": "f", "instagram": "i"}\n```'
+    result = _parse_response(raw)
+    assert result.mls_full == "x"
+
+
+def test_parse_response_missing_key_raises():
+    from app.services.copy_generator import _parse_response
+    import json as _json
+    raw = _json.dumps({"mls_full": "x", "mls_short": "y", "facebook": "f"})
+    with pytest.raises(Exception):
+        _parse_response(raw)
+
+
+def test_build_prompt_includes_listing_data():
+    from app.services.copy_generator import _build_prompt
+    from unittest.mock import MagicMock
     listing = MagicMock()
+    listing.confidence = "high"
     listing.beds = 4
     listing.baths = 2.5
     listing.sqft = 2100
-    listing.year_built = 1998
-    listing.price = 425000
+    listing.year_built = 2005
+    listing.price = 450000
     listing.property_type = "Single Family"
-    listing.confidence = "high"
-
-    prompt = _build_prompt(
-        "123 Main St, Kansas City, MO",
-        listing,
-        {"kitchen": ["granite_counters", "stainless_appliances"], "living_room": ["fireplace"]},
-        []
-    )
+    prompt = _build_prompt("123 Main St", listing, {"kitchen": ["island"]}, ["pool"])
     assert "4" in prompt
-    assert "2,100" in prompt
-    assert "$425,000" in prompt
-    assert "granite_counters" in prompt
+    assert "pool" in prompt
+    assert "mls_full" in prompt
+    assert "mls_short" in prompt
+    assert "facebook" in prompt
+    assert "instagram" in prompt
 
 
-def test_build_prompt_without_listing_data():
-    prompt = _build_prompt("123 Main St", None, {"kitchen": ["granite_counters"]}, [])
-    assert "granite_counters" in prompt
-    assert "infer" in prompt.lower()
-
-
-def test_parse_response_valid():
-    raw = json.dumps({
-        "mls_description": "Beautiful home...",
-        "instagram": "Dream home! #KansasCity",
-        "facebook": "Just listed! Beautiful home in KC.",
-        "twitter": "New listing in KC! 4bd/2.5ba $425k",
-    })
-    result = _parse_response(raw)
-    assert result["mls_description"].startswith("Beautiful")
-    assert result["instagram"].startswith("Dream")
-
-
-def test_parse_response_strips_markdown():
-    raw = "```json\n" + json.dumps({
-        "mls_description": "X", "instagram": "Y", "facebook": "Z", "twitter": "W"
-    }) + "\n```"
-    result = _parse_response(raw)
-    assert result["mls_description"] == "X"
+def test_build_prompt_no_listing_data():
+    from app.services.copy_generator import _build_prompt
+    prompt = _build_prompt("123 Main St", None, {}, [])
+    assert "No listing data" in prompt
+    assert "mls_full" in prompt

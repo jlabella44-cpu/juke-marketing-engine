@@ -1,8 +1,8 @@
 """Claude-powered copy generator — produces MLS description and social captions."""
 import asyncio
-import json
 import logging
 import re
+import json
 from uuid import UUID
 
 import anthropic
@@ -12,11 +12,12 @@ from app.database import async_session_factory
 from app.models.listing_data import ProjectListingData
 from app.models.photo import Photo
 from app.models.project import Project
+from app.schemas.claude_responses import CopyResult
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-COPY_PROMPT_TEMPLATE = """You are a professional real estate copywriter. Generate marketing copy for the listing below.
+COPY_PROMPT_TEMPLATE = """You are a real estate marketing copywriter for Juke Media KC.
 
 Property: {address}
 {listing_section}
@@ -26,22 +27,21 @@ Key features by room:
 
 Return a JSON object (no markdown, no explanation):
 {{
-  "mls_description": "...",  // 200-250 words, professional MLS listing style, no price
-  "instagram": "...",         // ≤150 chars + relevant hashtags including #KansasCity #RealEstate
-  "facebook": "...",          // 2-3 sentences, conversational, engaging
-  "twitter": "..."            // ≤280 chars, punchy, includes price if available
+  "mls_full": "...",      // 200-250 words, professional MLS listing style, lead with standout features
+  "mls_short": "...",     // ~100 words, punchy flyer teaser highlighting the best features
+  "facebook": "...",      // 2-3 professional sentences + relevant emojis + exactly 5 hashtags at the end
+  "instagram": "..."      // lifestyle/energetic caption + relevant emojis + exactly 5 hashtags at the end
 }}
 """
 
 
-async def generate(project_id: UUID) -> dict:
-    """Generate copy for a project. Returns {mls_description, instagram, facebook, twitter}."""
+async def generate(project_id: UUID) -> CopyResult:
+    """Generate copy for a project. Returns CopyResult with mls_full, mls_short, facebook, instagram."""
     async with async_session_factory() as db:
         project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one()
         listing = (await db.execute(
             select(ProjectListingData).where(ProjectListingData.project_id == project_id)
         )).scalar_one_or_none()
-
         photos = (await db.execute(
             select(Photo).where(Photo.project_id == project_id, Photo.selected_rank != None)  # noqa: E711
         )).scalars().all()
@@ -55,7 +55,6 @@ async def generate(project_id: UUID) -> dict:
         if hasattr(photo, "standout_features") and photo.standout_features:
             standout.extend(photo.standout_features)
 
-    # Deduplicate
     features = {k: list(dict.fromkeys(v)) for k, v in features.items()}
     standout = list(dict.fromkeys(standout))
 
@@ -67,7 +66,7 @@ async def generate(project_id: UUID) -> dict:
         None,
         lambda: client.messages.create(
             model=settings.CLAUDE_MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         ),
     )
@@ -110,7 +109,8 @@ def _build_prompt(address: str, listing, features: dict, standout: list) -> str:
     )
 
 
-def _parse_response(raw: str) -> dict:
-    """Parse Claude's JSON response, stripping any markdown fences."""
+def _parse_response(raw: str) -> CopyResult:
+    """Parse Claude's JSON response into a CopyResult, stripping any markdown fences."""
     text = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
-    return json.loads(text)
+    data = json.loads(text)
+    return CopyResult(**data)
