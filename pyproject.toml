@@ -14,6 +14,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
     "celery[redis]>=5.4.0",
+    "flower>=2.0.0",
     "redis>=5.0.0",
     "anthropic>=0.28.0",
     "dropbox>=12.0.0",
@@ -21,6 +22,8 @@ dependencies = [
     "pillow>=10.3.0",
     "pydantic-settings>=2.3.0",
     "python-multipart>=0.0.9",
+    "moviepy>=1.0.3",
+    "reportlab>=4.2.0",
 ]
 
 [project.optional-dependencies]
