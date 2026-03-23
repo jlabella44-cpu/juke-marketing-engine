@@ -75,6 +75,9 @@ async def generate(project_id: UUID, output_path: Path) -> None:
 
 async def _generate_clip(photo, idx: int, clips_dir: Path, semaphore: asyncio.Semaphore) -> Optional[Path]:
     """Submit photo to Kling and download the resulting clip. Returns None on failure."""
+    # Stagger submissions to avoid rate limiting (3s per slot)
+    await asyncio.sleep(idx * 3)
+
     async with semaphore:
         clip_path = clips_dir / f"{idx:02d}.mp4"
         if clip_path.exists():
@@ -89,7 +92,7 @@ async def _generate_clip(photo, idx: int, clips_dir: Path, semaphore: asyncio.Se
 
         loop = asyncio.get_running_loop()
         task_id = None
-        for attempt in range(2):  # one retry per spec error table
+        for attempt in range(3):  # up to 3 attempts with backoff
             try:
                 task_id = await loop.run_in_executor(
                     None, _submit_clip, b64, MOTION_PROMPT,
@@ -98,6 +101,7 @@ async def _generate_clip(photo, idx: int, clips_dir: Path, semaphore: asyncio.Se
                 break
             except Exception as e:
                 logger.warning("Kling submit attempt %d failed for clip %02d: %s", attempt + 1, idx, e)
+                await asyncio.sleep(5 * (attempt + 1))  # 5s, 10s backoff
         if task_id is None:
             return None
 
