@@ -24,6 +24,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "moviepy>=1.0.3",
     "reportlab>=4.2.0",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]
