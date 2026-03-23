@@ -77,9 +77,9 @@ def _make_session_ctx(db_mock):
 @patch("app.services.photo_selection.async_session_factory")
 @patch("app.services.photo_selection.set_project_status", new_callable=AsyncMock)
 async def test_hero_slots_assigned(mock_set_status, mock_session_factory):
-    """Exterior photo → hero_exterior (rank 1); kitchen photo → hero_kitchen (rank 2)."""
+    """Exterior photo → hero_exterior_front (rank 1); kitchen photo → hero_kitchen (rank 2)."""
     project = _make_project(status="tagged")
-    exterior = _make_photo(project.id, room_tag="exterior", ai_score=0.90)
+    exterior = _make_photo(project.id, room_tag="exterior_front", ai_score=0.90)
     kitchen = _make_photo(project.id, room_tag="kitchen", ai_score=0.85)
     photos = [exterior, kitchen]
 
@@ -88,7 +88,7 @@ async def test_hero_slots_assigned(mock_set_status, mock_session_factory):
 
     await process(project.id)
 
-    assert exterior.hero_slot == "hero_exterior"
+    assert exterior.hero_slot == "hero_exterior_front"
     assert exterior.selected_rank == 1
 
     assert kitchen.hero_slot == "hero_kitchen"
@@ -118,8 +118,8 @@ async def test_hero_slot_missing_uses_best_available(mock_set_status, mock_sessi
 
     await process(project.id)
 
-    # hero_exterior slot has no natural candidate; kitchen is best available
-    assert kitchen.hero_slot == "hero_exterior"
+    # hero_exterior_front slot has no natural candidate; kitchen is best available
+    assert kitchen.hero_slot == "hero_exterior_front"
     assert kitchen.is_best_available is True
     assert kitchen.selected_rank == 1
 
@@ -136,7 +136,7 @@ async def test_standout_promotion_ranks_above_priority_order(mock_set_status, mo
 
     # Provide photos for all 6 hero slots so they're consumed first
     hero_photos = [
-        _make_photo(project.id, room_tag="exterior",         ai_score=0.90),
+        _make_photo(project.id, room_tag="exterior_front",   ai_score=0.90),
         _make_photo(project.id, room_tag="kitchen",          ai_score=0.88),
         _make_photo(project.id, room_tag="living_room",      ai_score=0.86),
         _make_photo(project.id, room_tag="primary_bedroom",  ai_score=0.84),
@@ -173,7 +173,7 @@ async def test_priority_order_dining_before_bathroom(mock_set_status, mock_sessi
 
     # Fill all 6 hero slots
     hero_photos = [
-        _make_photo(project.id, room_tag="exterior",         ai_score=0.95),
+        _make_photo(project.id, room_tag="exterior_front",   ai_score=0.95),
         _make_photo(project.id, room_tag="kitchen",          ai_score=0.94),
         _make_photo(project.id, room_tag="living_room",      ai_score=0.93),
         _make_photo(project.id, room_tag="primary_bedroom",  ai_score=0.92),

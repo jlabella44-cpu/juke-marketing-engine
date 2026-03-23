@@ -274,7 +274,7 @@ async def test_is_drone_overrides_room_tag(
     # Claude returns is_drone=True with a non-drone room_tag
     drone_response = _make_claude_response([{
         "image_index": 0,
-        "room_tag": "exterior",
+        "room_tag": "exterior_front",
         "feature_tags": ["pool"],
         "ai_score": 0.92,
         "is_drone": True,
@@ -292,10 +292,13 @@ async def test_is_drone_overrides_room_tag(
 
     # Extract the values passed to the update statement
     update_stmt = update_calls[0].args[0]
-    # The compiled whereclause and values are on the statement object
-    assert update_stmt._values["room_tag"].value == "drone", (
-        f"Expected room_tag='drone' but got {update_stmt._values['room_tag'].value!r}"
+    # SQLAlchemy 2.x keys _values by Column object; look up by attribute name
+    room_tag_val = next(
+        (v.value for k, v in update_stmt._values.items()
+         if (k.key if hasattr(k, "key") else k) == "room_tag"),
+        None,
     )
+    assert room_tag_val == "drone", f"Expected room_tag='drone' but got {room_tag_val!r}"
 
 
 # ---------------------------------------------------------------------------

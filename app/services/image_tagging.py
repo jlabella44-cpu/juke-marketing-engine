@@ -24,9 +24,9 @@ You are analyzing real estate photography. For each image, return a JSON object.
 Return a JSON array with one object per image (in order):
 {
   "image_index": 0,
-  "room_tag": "kitchen",          // one of: exterior, kitchen, living_room, dining,
-                                  // primary_bedroom, primary_bathroom, bedroom,
-                                  // bathroom, office, basement, outdoor_living,
+  "room_tag": "kitchen",          // one of: exterior_front, exterior_rear, kitchen,
+                                  // living_room, dining, primary_bedroom, primary_bathroom,
+                                  // bedroom, bathroom, office, basement, outdoor_living,
                                   // garage, laundry, entryway, staircase, drone, detail, other
   "feature_tags": ["island", "quartz_counters", "stainless_appliances"],
   "ai_score": 0.87,               // 0.0-1.0: composition quality + lighting + staging
@@ -35,6 +35,18 @@ Return a JSON array with one object per image (in order):
                                   // vaulted_ceilings, luxury_kitchen, outdoor_kitchen,
                                   // barn, shop, theater, gym
 }
+
+IMPORTANT room_tag rules:
+- Use "primary_bedroom" for the largest/master bedroom (typically has en-suite bath, walk-in closet, or is clearly the main bedroom)
+- Use "primary_bathroom" for the master/en-suite bathroom (typically larger, more upgraded finishes, adjacent to primary bedroom)
+- Use "bedroom" only for secondary/guest bedrooms
+- Use "bathroom" only for secondary/hall/guest bathrooms
+- When in doubt between primary and secondary, look for size, finishes, and en-suite indicators
+
+IMPORTANT exterior room_tag rules:
+- Use "exterior_front" for street-facing shots: driveway, garage door, front door, shutters, street/curb view
+- Use "exterior_rear" for backyard shots: rear of house, fence, shed, rear yard, back elevation
+- When in doubt, prefer "exterior_front"
 
 Return ONLY the JSON array. No markdown, no explanation.
 """
@@ -68,6 +80,20 @@ async def process(project_id: UUID) -> None:
             select(Photo).where(Photo.project_id == project_id, Photo.ai_score == None)  # noqa: E711
         )
         photos = photo_result.scalars().all()
+
+        if not photos:
+            await set_project_status(db, project_id, "tagged")
+            await db.commit()
+            return
+
+        # Filter out photos whose files are missing on disk
+        valid_photos = []
+        for photo in photos:
+            if Path(photo.file_path).exists():
+                valid_photos.append(photo)
+            else:
+                logger.warning("Skipping missing file during tagging: %s", photo.file_path)
+        photos = valid_photos
 
         if not photos:
             await set_project_status(db, project_id, "tagged")

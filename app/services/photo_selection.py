@@ -21,7 +21,7 @@ STANDOUT_PROMOTIONS = [
 ]
 
 HERO_SLOT_CRITERIA = {
-    "hero_exterior":         lambda p: p.room_tag == "exterior",
+    "hero_exterior_front":   lambda p: p.room_tag in ("exterior_front", "exterior"),
     "hero_kitchen":          lambda p: p.room_tag == "kitchen",
     "hero_living_room":      lambda p: p.room_tag == "living_room",
     "hero_primary_bedroom":  lambda p: p.room_tag == "primary_bedroom",

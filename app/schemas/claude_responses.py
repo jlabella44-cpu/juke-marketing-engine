@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 VALID_ROOM_TAGS = Literal[
-    "exterior", "kitchen", "living_room", "dining",
+    "exterior_front", "exterior_rear", "kitchen", "living_room", "dining",
     "primary_bedroom", "primary_bathroom", "bedroom",
     "bathroom", "office", "basement", "outdoor_living",
     "garage", "laundry", "entryway", "staircase", "drone", "detail", "other"
