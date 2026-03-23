@@ -7,6 +7,7 @@ What is mocked:
   - anthropic.Anthropic        — returns valid tagging JSON for one photo
   - PIL.Image.open / validate_image — always passes validation
   - app.utils.image_utils.validate_image — returns True for the fake JPEG
+  - app.services.asset_generation.process — inserts 4 ProjectAsset rows directly
 
 What is real behavior being tested:
   - email_detection.poll_inbox parses subject + body correctly
@@ -15,6 +16,7 @@ What is real behavior being tested:
   - image_tagging.process transitions status ingested → tagging → tagged
   - photo_selection.process transitions status tagged → selecting → selected
   - At least one Photo has selected_rank set after the full pipeline
+  - Phase 2: asset rows are created for all 4 asset types
 """
 import asyncio
 import io
@@ -105,6 +107,7 @@ async def test_pipeline_happy_path(tmp_path):
 
     fake_project = FakeProject()
     fake_photos: list[FakePhoto] = []
+    fake_assets: list = []
 
     # -----------------------------------------------------------------------
     # Mock async_session_factory (used by all services)
@@ -124,6 +127,10 @@ async def test_pipeline_happy_path(tmp_path):
                 result.scalar_one_or_none.return_value = None
                 result.scalar_one.return_value = None
                 result.scalars.return_value.all.return_value = []
+            elif "project_assets" in stmt_str:
+                # ProjectAsset queries
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = list(fake_assets)
             elif "photos" in stmt_str and ("select" in stmt_str or "where" in stmt_str):
                 # Photo queries
                 result.scalar_one_or_none.return_value = None
@@ -138,7 +145,9 @@ async def test_pipeline_happy_path(tmp_path):
             return result
 
         def add(self, obj):
-            if isinstance(obj, FakePhoto):
+            if hasattr(obj, "asset_type") and hasattr(obj, "project_id") and not hasattr(obj, "file_path"):
+                fake_assets.append(obj)
+            elif hasattr(obj, "file_path") and hasattr(obj, "project_id"):
                 fake_photos.append(obj)
             self._added.append(obj)
 
@@ -235,8 +244,10 @@ async def test_pipeline_happy_path(tmp_path):
          patch("app.services.photo_selection.async_session_factory", FakeSessionFactory()), \
          patch("app.services.photo_selection.set_project_status", new_callable=AsyncMock) as mock_set_status_selection, \
          patch("app.services.image_tagging.anthropic.Anthropic") as mock_anthropic_cls, \
-         patch("app.utils.image_utils.validate_image", return_value=True), \
-         patch("app.config.settings") as mock_settings:
+         patch("app.services.media_ingestion.validate_image", return_value=True), \
+         patch("app.config.settings") as mock_settings, \
+         patch("app.services.asset_generation.async_session_factory", FakeSessionFactory()), \
+         patch("app.services.asset_generation.set_project_status", new_callable=AsyncMock) as mock_set_status_assets:
 
         # Configure settings
         mock_settings.IMAP_HOST = "imap.example.com"
@@ -315,6 +326,22 @@ async def test_pipeline_happy_path(tmp_path):
 
         assert "selected" in status_calls, f"Expected 'selected' in status transitions, got: {status_calls}"
 
+        # Step 5: Asset generation — mock sub-generators but run the orchestrator
+        # so it inserts the 4 ProjectAsset rows into fake_db via FakeDB.add
+        fake_project.status = "selected"
+        mock_set_status_assets.side_effect = track_status
+
+        with patch("app.services.asset_generation.copy_generator.generate", new_callable=AsyncMock,
+                   return_value={"mls_description": "Nice home.", "instagram": "ig", "facebook": "fb", "twitter": "tw"}), \
+             patch("app.services.asset_generation.video_generator.generate", new_callable=AsyncMock,
+                   return_value=None), \
+             patch("app.services.asset_generation.flyer_generator.generate_flyer", return_value=None), \
+             patch("asyncio.get_running_loop") as mock_loop:
+            # Make run_in_executor a no-op so flyer_generator.generate_flyer is never actually called
+            mock_loop.return_value.run_in_executor = AsyncMock(return_value=None)
+            from app.services import asset_generation
+            await asset_generation.process(project_id)
+
     # -----------------------------------------------------------------------
     # Final assertions
     # -----------------------------------------------------------------------
@@ -328,3 +355,11 @@ async def test_pipeline_happy_path(tmp_path):
         f"Expected at least one photo with selected_rank, got 0. "
         f"Total photos: {len(fake_photos)}"
     )
+
+    # Phase 2: verify asset rows created
+    from app.models.asset import ProjectAsset
+    asset_types = {a.asset_type for a in fake_assets}
+    assert "video" in asset_types, f"Expected 'video' asset row, got asset_types={asset_types}"
+    assert "copy_mls" in asset_types, f"Expected 'copy_mls' asset row, got asset_types={asset_types}"
+    assert "copy_social" in asset_types, f"Expected 'copy_social' asset row, got asset_types={asset_types}"
+    assert "flyer" in asset_types, f"Expected 'flyer' asset row, got asset_types={asset_types}"
