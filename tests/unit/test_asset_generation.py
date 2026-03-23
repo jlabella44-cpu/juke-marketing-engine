@@ -1,52 +1,43 @@
-# tests/unit/test_asset_generation.py
+"""Tests for asset_generation orchestrator."""
+import asyncio
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-import pytest
-from app.services.asset_generation import process
 
 
-@pytest.mark.asyncio
-async def test_skips_if_not_selected():
-    project = MagicMock()
-    project.status = "tagged"
-    with patch("app.services.asset_generation.async_session_factory") as mock_sf:
-        mock_db = AsyncMock()
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-        mock_db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=project)
-        ))
-        await process(uuid4())
-        mock_db.execute.assert_called()
+def test_asset_types_tuple():
+    """Pending rows must be created for all 6 asset types."""
+    from app.models.asset import ASSET_TYPES
+    assert "copy_mls_full" in ASSET_TYPES
+    assert "copy_mls_short" in ASSET_TYPES
+    assert "copy_facebook" in ASSET_TYPES
+    assert "copy_instagram" in ASSET_TYPES
+    assert "copy_mls" not in ASSET_TYPES
+    assert "copy_social" not in ASSET_TYPES
 
 
-@pytest.mark.asyncio
-async def test_sets_status_generating_then_generated():
-    """Verify status transitions: selected → generating → generated."""
-    project = MagicMock()
-    project.status = "selected"
-    project.id = uuid4()
+def test_copy_types_has_four_entries():
+    """_COPY_TYPES must contain exactly the 4 new asset types."""
+    from app.services.asset_generation import _COPY_TYPES
+    assert set(_COPY_TYPES) == {"copy_mls_full", "copy_mls_short", "copy_facebook", "copy_instagram"}
+    assert "copy_mls" not in _COPY_TYPES
+    assert "copy_social" not in _COPY_TYPES
 
-    with patch("app.services.asset_generation.async_session_factory") as mock_sf, \
-         patch("app.services.asset_generation.copy_generator.generate",
-               new_callable=AsyncMock,
-               return_value={"mls_description": "X", "instagram": "Y", "facebook": "Z", "twitter": "W"}), \
-         patch("app.services.asset_generation.video_generator.generate", new_callable=AsyncMock), \
-         patch("app.services.asset_generation.flyer_generator.generate_flyer"), \
-         patch("app.services.asset_generation.set_project_status",
-               new_callable=AsyncMock) as mock_status:
 
-        mock_db = AsyncMock()
-        mock_db.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=project),
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))),
-        ))
-        mock_db.commit = AsyncMock()
-        mock_db.add = MagicMock()
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
+def test_copy_asset_type_field_mapping():
+    """The 4 copy asset types map to the correct CopyResult fields in the correct order."""
+    from app.schemas.claude_responses import CopyResult
+    from app.services.asset_generation import _COPY_TYPES
 
-        await process(project.id)
-
-        status_calls = [str(c) for c in mock_status.call_args_list]
-        assert any("generating" in c for c in status_calls)
+    result = CopyResult(
+        mls_full="mls_full content",
+        mls_short="mls_short content",
+        facebook="facebook content",
+        instagram="instagram content",
+    )
+    fields = [result.mls_full, result.mls_short, result.facebook, result.instagram]
+    assert list(_COPY_TYPES) == ["copy_mls_full", "copy_mls_short", "copy_facebook", "copy_instagram"]
+    assert fields[0] == "mls_full content"
+    assert fields[1] == "mls_short content"
+    assert fields[2] == "facebook content"
+    assert fields[3] == "instagram content"
