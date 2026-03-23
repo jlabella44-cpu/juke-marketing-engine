@@ -179,6 +179,13 @@ def run_pipeline(self, project_id: str):
         raise self.retry(exc=exc, countdown=60)
 
 
+@app.task(name="app.tasks.pipeline.run_dropbox_upload")
+def run_dropbox_upload(project_id: str):
+    """Triggered by POST /approve — uploads assets to Dropbox."""
+    from app.services.dropbox_storage import upload_assets
+    asyncio.run(upload_assets(UUID(project_id)))
+
+
 async def _mark_project_failed(project_id: UUID, error_message: str):
     from app.database import set_project_status
     async with async_session_factory() as db:
