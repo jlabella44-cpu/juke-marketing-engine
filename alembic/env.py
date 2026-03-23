@@ -6,6 +6,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
 from app.database import Base
+from app.models.project import Project                  # noqa: F401
+from app.models.photo import Photo                      # noqa: F401
+from app.models.processed_email import ProcessedEmail   # noqa: F401
+from app.models.listing_data import ProjectListingData  # noqa: F401
+from app.models.asset import ProjectAsset               # noqa: F401
 
 # Alembic Config object
 config = context.config
