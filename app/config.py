@@ -40,5 +40,13 @@ class Settings(BaseSettings):
     TEMP_DIR: str = "/tmp/juke_projects"
     API_KEY: str = ""
 
+    # Kling AI (video generation)
+    KLING_ACCESS_KEY: str = ""
+    KLING_SECRET_KEY: str = ""
+    KLING_API_BASE_URL: str = "https://api.klingai.com"
+    VIDEO_SCORE_FLOOR: float = 0.65
+    VIDEO_MAX_PHOTOS: int = 10
+    VIDEO_CLIP_DURATION: int = 5
+
 
 settings = Settings()
