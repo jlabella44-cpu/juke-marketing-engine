@@ -45,6 +45,19 @@ def test_video_order_exterior_front_before_interior():
     assert ext_idx < kitchen_idx
 
 
+def test_video_order_legacy_exterior_before_interior():
+    photos = [
+        _photo("kitchen", 0.8, 2),
+        _photo("exterior", 0.7, 1),   # legacy tag
+        _photo("drone", 0.9, 6),
+    ]
+    ordered = _order_photos_for_video(photos)
+    tags = [p.room_tag for p in ordered]
+    ext_idx = tags.index("exterior")
+    kitchen_idx = tags.index("kitchen")
+    assert ext_idx < kitchen_idx
+
+
 def test_video_order_capped_at_18():
     photos = [_photo("kitchen", 0.5, i) for i in range(30)]
     ordered = _order_photos_for_video(photos)

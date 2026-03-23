@@ -20,8 +20,7 @@ MUSIC_PATH = Path(__file__).parent.parent / "assets" / "music" / "background.mp3
 
 # Photo ordering: group → order within group
 _ORDER = [
-    "exterior_front", # group 1
-    "exterior",       # group 1 fallback (legacy tag)
+    "exterior_front", # group 1 (legacy "exterior" also maps here)
     "entryway",       # group 2 — interior start
     "living_room",
     "kitchen",
@@ -69,8 +68,9 @@ def _order_photos_for_video(photos: list) -> list:
 
     # Sort non-drone by the _ORDER index
     def _sort_key(p):
+        tag = "exterior_front" if p.room_tag == "exterior" else p.room_tag
         try:
-            return _ORDER.index(p.room_tag)
+            return _ORDER.index(tag)
         except ValueError:
             return len(_ORDER)
 
