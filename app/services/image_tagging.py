@@ -64,9 +64,9 @@ async def process(project_id: UUID) -> None:
         # Idempotency check
         result = await db.execute(select(Project).where(Project.id == project_id))
         project = result.scalar_one_or_none()
-        if project is None or project.status != "ingested":
+        if project is None or project.status != "scraped":
             logger.info(
-                "Skipping tagging for project %s — status=%s",
+                "Skipping tagging for project %s — status=%s (expected: scraped)",
                 project_id,
                 project.status if project else "not found",
             )

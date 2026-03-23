@@ -1,13 +1,12 @@
 import asyncio
 import logging
-import shutil
-from pathlib import Path
 from uuid import UUID
 
 # IMPORTANT: asyncio.run() is used to call async services from sync Celery tasks.
 # This requires the Celery worker to use the default prefork pool (--pool=prefork).
 # Do NOT use --pool=gevent or --pool=eventlet — asyncio.run() will deadlock or fail.
 
+import redis as redis_client
 from sqlalchemy import select, insert
 from sqlalchemy.exc import IntegrityError
 
@@ -16,6 +15,7 @@ from app.database import async_session_factory
 from app.models.project import Project
 from app.models.processed_email import ProcessedEmail
 from app.services import email_detection, media_ingestion, image_tagging, photo_selection
+from app.services import property_data_scraper, asset_generation
 from app.services import dropbox_storage
 from app.tasks.celery_app import app
 from app.utils.slug import address_to_slug
@@ -120,40 +120,50 @@ def run_pipeline(self, project_id: str):
     Steps:
     1. asyncio.run(media_ingestion.process(project_id))
     2. dropbox_storage.upload_source(project_id)    — catch NotImplementedError, log + skip
-    3. asyncio.run(image_tagging.process(project_id))
-    4. asyncio.run(photo_selection.process(project_id))
-    5. shutil.rmtree(temp_dir / project_id)         — cleanup after all services complete
-    6. dropbox_storage.upload_selected(project_id)  — catch NotImplementedError, log + skip
+    3. asyncio.run(property_data_scraper.process(project_id))
+    4. asyncio.run(image_tagging.process(project_id))
+    5. asyncio.run(photo_selection.process(project_id))
+    6. asyncio.run(asset_generation.process(project_id))
+    Note: Dropbox upload and cleanup triggered by POST /approve
     """
+    # Distributed lock: prevent concurrent pipeline runs for the same project.
+    # If another worker holds the lock, retry after 30s rather than racing.
+    lock_key = f"pipeline_lock:{project_id}"
+    lock_ttl = 600  # 10 minutes — generous upper bound for a full pipeline run
+    r = redis_client.from_url(settings.REDIS_URL)
+    acquired = r.set(lock_key, "1", nx=True, ex=lock_ttl)
+    if not acquired:
+        logger.info("Pipeline for project %s already running, retrying in 30s", project_id)
+        raise self.retry(countdown=30)
+
     pid = UUID(project_id)
-    temp_dir = Path(settings.TEMP_DIR) / project_id
 
     try:
         # Step 1: Media ingestion
         asyncio.run(media_ingestion.process(pid))
 
-        # Step 2: Dropbox source upload (Phase 2)
+        # Step 2: Dropbox source upload (not yet implemented)
         try:
             dropbox_storage.upload_source(pid)
         except NotImplementedError:
-            logger.info("Dropbox source upload skipped (Phase 2 not implemented)")
+            logger.info("Dropbox source upload skipped (not yet implemented)")
 
-        # Step 3: Image tagging
+        # Step 3: Property data scraping
+        asyncio.run(property_data_scraper.process(pid))
+
+        # Step 4: Image tagging
         asyncio.run(image_tagging.process(pid))
 
-        # Step 4: Photo selection
+        # Step 5: Photo selection
         asyncio.run(photo_selection.process(pid))
 
-        # Step 5: Cleanup temp files (after all services complete)
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            logger.info("Cleaned up temp dir %s", temp_dir)
+        # Step 6: Asset generation
+        asyncio.run(asset_generation.process(pid))
 
-        # Step 6: Dropbox selected upload (Phase 2)
-        try:
-            dropbox_storage.upload_selected(pid)
-        except NotImplementedError:
-            logger.info("Dropbox selected upload skipped (Phase 2 not implemented)")
+        # Note: Dropbox upload and cleanup are triggered by POST /approve, not here
+        logger.info("Pipeline complete for project %s — awaiting approval", project_id)
+
+        r.delete(lock_key)
 
     except Exception as exc:
         logger.exception("Pipeline failed for project %s: %s", project_id, exc)
@@ -164,6 +174,7 @@ def run_pipeline(self, project_id: str):
                 asyncio.run(_mark_project_failed(pid, str(exc)))
             except Exception as mark_err:
                 logger.error("Could not mark project failed: %s", mark_err)
+            r.delete(lock_key)
             raise  # re-raise without retry
         raise self.retry(exc=exc, countdown=60)
 
