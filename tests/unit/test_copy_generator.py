@@ -1,7 +1,25 @@
 # tests/unit/test_copy_generator.py
 import json
+import pytest
 from unittest.mock import MagicMock, patch
 from app.services.copy_generator import _build_prompt, _parse_response
+from app.schemas.claude_responses import CopyResult
+from pydantic import ValidationError
+
+
+def test_copy_result_valid():
+    result = CopyResult(
+        mls_full="A great home " * 20,
+        mls_short="Great home " * 10,
+        facebook="Just listed! 🏡 #RealEstate #KansasCity #JustListed #HomeSale #NewListing",
+        instagram="Dream home ✨ #RealEstate #KansasCity #JustListed #HomeSale #NewListing",
+    )
+    assert result.mls_full.startswith("A great home")
+
+
+def test_copy_result_missing_field():
+    with pytest.raises(ValidationError):
+        CopyResult(mls_full="x", mls_short="x", facebook="x")  # missing instagram
 
 
 def test_build_prompt_with_listing_data():

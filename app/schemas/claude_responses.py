@@ -22,3 +22,10 @@ class TaggingResult(BaseModel):
     ai_score: float = Field(ge=0.0, le=1.0)
     is_drone: bool = False
     standout_features: list[VALID_STANDOUT_FEATURES] = []
+
+
+class CopyResult(BaseModel):
+    mls_full: str
+    mls_short: str
+    facebook: str
+    instagram: str

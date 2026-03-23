@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from sqlalchemy.sql import func
 from app.database import Base
 
-ASSET_TYPES = ("video", "flyer", "copy_mls", "copy_social")
+ASSET_TYPES = ("video", "flyer", "copy_mls_full", "copy_mls_short", "copy_facebook", "copy_instagram")
 ASSET_STATUSES = ("pending", "generating", "ready", "failed")
 
 
@@ -14,7 +14,7 @@ class ProjectAsset(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    asset_type = Column(String, nullable=False)   # video / flyer / copy_mls / copy_social
+    asset_type = Column(String, nullable=False)   # video / flyer / copy_mls_full / copy_mls_short / copy_facebook / copy_instagram
     status = Column(String, nullable=False, default="pending")
     file_path = Column(String, nullable=True)      # local path (video, flyer)
     dropbox_path = Column(String, nullable=True)   # set after upload
